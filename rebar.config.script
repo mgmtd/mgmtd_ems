@@ -1,0 +1,17 @@
+%% geas_rebar3 1.6 / geas 2.11 are not usable on OTP 24 (newer BEAM opcodes).
+Otp = list_to_integer(erlang:system_info(otp_release)),
+Config1 = case Otp >= 26 of
+              true -> CONFIG;
+              false -> lists:keydelete(project_plugins, 1, CONFIG)
+          end,
+%% Prefer the sibling checkout when hacking mgmtd+EMS together.
+Project = filename:absname("."),
+MgmtdDir = filename:join(filename:dirname(Project), "mgmtd"),
+Mgmtd = case filelib:is_dir(MgmtdDir) of
+            true ->
+                {mgmtd, {path, MgmtdDir}};
+            false ->
+                {mgmtd, {git, "https://github.com/mgmtd/mgmtd.git", {branch, "master"}}}
+        end,
+Deps = proplists:get_value(deps, Config1, []),
+lists:keystore(deps, 1, Config1, {deps, [Mgmtd | Deps]}).

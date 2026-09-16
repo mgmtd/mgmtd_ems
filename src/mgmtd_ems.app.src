@@ -1,0 +1,23 @@
+{application, mgmtd_ems,
+ [{description, "Element management system for a fleet of mgmtd RESTCONF nodes"},
+  {vsn, "0.1.0"},
+  {registered, [mgmtd_ems_sup, mgmtd_ems_inventory, mgmtd_ems_schema,
+                mgmtd_ems_session_sup, mgmtd_ems_sessions, mgmtd_ems_http]},
+  {mod, {mgmtd_ems_app, []}},
+  {applications,
+   [kernel,
+    stdlib,
+    inets,
+    jsx,
+    cowboy,
+    erlydtl,
+    mgmtd
+   ]},
+  {env, [{nodes, []},
+         {probe_interval, 30000},
+         {http, [{enabled, true}, {port, 8081}]}]},
+  {modules, []},
+
+  {licenses, ["Apache 2.0"]},
+  {links, [{"GitHub", "https://github.com/mgmtd/mgmtd_ems"}]}
+ ]}.

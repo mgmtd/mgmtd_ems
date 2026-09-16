@@ -1,0 +1,20 @@
+{% if input.is_bool %}
+<select class="field" name="{{ input.name }}">
+  <option value=""></option>
+  <option value="true"{% if input.true_selected %} selected{% endif %}>true</option>
+  <option value="false"{% if input.false_selected %} selected{% endif %}>false</option>
+</select>
+{% else %}{% if input.is_enum %}
+<select class="field" name="{{ input.name }}">
+  <option value=""></option>
+  {% for opt in input.enums %}
+  <option value="{{ opt.name }}"{% if opt.selected %} selected{% endif %}>{{ opt.name }}</option>
+  {% endfor %}
+</select>
+{% else %}{% if input.is_textarea %}
+<textarea class="field" name="{{ input.name }}" rows="3">{{ input.value }}</textarea>
+{% else %}{% if input.is_number %}
+<input class="field" type="number" name="{{ input.name }}" value="{{ input.value }}"{% if input.placeholder %} placeholder="{{ input.placeholder }}"{% endif %}>
+{% else %}
+<input class="field" type="text" name="{{ input.name }}" value="{{ input.value }}"{% if input.placeholder %} placeholder="{{ input.placeholder }}"{% endif %}>
+{% endif %}{% endif %}{% endif %}{% endif %}

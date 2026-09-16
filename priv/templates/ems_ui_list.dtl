@@ -1,0 +1,19 @@
+<div class="list-stack">
+  {% if empty %}
+  <p class="card muted-card">No entries</p>
+  {% endif %}
+  {{ items_html|safe }}
+  {% if can_write %}
+  <form class="card add-card" method="post" action="{{ ui_base }}/add">
+    <input type="hidden" name="path" value="{{ path }}">
+    <input type="hidden" name="etag" value="{{ etag }}">
+    <input type="hidden" name="return" value="{{ return_path }}">
+    <input type="hidden" name="view" value="{{ view }}">
+    <input type="hidden" name="mode" value="{{ mode }}">
+    <h3>Add {{ name }}</h3>
+    <div class="draft-fields">{{ draft_html|safe }}</div>
+    {% if add_error %}<p class="field-error">{{ add_error }}</p>{% endif %}
+    <button class="btn" type="submit">Add</button>
+  </form>
+  {% endif %}
+</div>

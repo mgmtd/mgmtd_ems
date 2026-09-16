@@ -1,0 +1,14 @@
+{% if can_write %}
+<form class="leaf-form" method="post" action="{{ ui_base }}/save">
+  <input type="hidden" name="path" value="{{ path }}">
+  <input type="hidden" name="etag" value="{{ etag }}">
+  <input type="hidden" name="return" value="{{ return_path }}">
+  <input type="hidden" name="view" value="{{ view }}">
+  <input type="hidden" name="mode" value="{{ mode }}">
+  {{ input_html|safe }}
+  <button class="btn" type="submit">Save</button>
+  {% if error %}<p class="field-error">{{ error }}</p>{% endif %}
+</form>
+{% else %}
+<span class="display-value">{{ display }}</span>
+{% endif %}

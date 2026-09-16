@@ -1,0 +1,23 @@
+{% if has_selection %}
+<header class="pane-head">
+  <div class="pane-title">
+    <h2>{{ name }}</h2>
+    <span class="kind">{{ kind }}</span>
+    {% if read_only %}<span class="oper">read only</span>{% endif %}
+  </div>
+  <p class="path">{{ path }}</p>
+  {% if desc %}<p class="desc">{{ desc }}</p>{% endif %}
+</header>
+{% if load_error %}
+<p class="banner-error">{{ load_error }}</p>
+{% else %}
+{% if write_error %}<p class="banner-error">{{ write_error }}</p>{% endif %}
+{{ value_html|safe }}
+{% endif %}
+{% else %}
+{% if wrong_mode %}
+<p class="empty-hint">{{ wrong_mode_msg }} <a href="{{ other_href }}">{{ other_link }}</a></p>
+{% else %}
+<p class="empty-hint">{{ empty_hint }}</p>
+{% endif %}
+{% endif %}

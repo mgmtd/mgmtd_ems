@@ -1,0 +1,24 @@
+<article class="card">
+  <div class="card-head">
+    <div>
+      <h3>{{ title }}</h3>
+      {% if key_legend %}<p class="muted">{{ key_legend }}</p>{% endif %}
+    </div>
+    {% if can_write %}
+    <form method="post" action="{{ ui_base }}/delete">
+      <input type="hidden" name="path" value="{{ instance_path }}">
+      <input type="hidden" name="etag" value="{{ etag }}">
+      <input type="hidden" name="return" value="{{ return_path }}">
+      <input type="hidden" name="view" value="{{ view }}">
+      <input type="hidden" name="mode" value="{{ mode }}">
+      <button class="btn-danger" type="submit">Delete</button>
+    </form>
+    {% endif %}
+  </div>
+  {% if fields_html %}
+  <dl class="kv">{{ fields_html|safe }}</dl>
+  {% endif %}
+  {% if nested_html %}
+  <div class="nested">{{ nested_html|safe }}</div>
+  {% endif %}
+</article>

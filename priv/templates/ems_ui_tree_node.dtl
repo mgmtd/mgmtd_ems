@@ -1,0 +1,22 @@
+<li class="tree-item">
+  {% if node.has_kids %}
+  <details class="tree-branch"{% if node.open %} open{% endif %}>
+    <summary>
+      {% if node.is_link %}
+      <a class="tree-link{% if node.selected %} is-selected{% endif %}" href="{{ node.href }}">
+        <span class="tree-name{% if not node.config %} is-oper{% endif %}">{{ node.name }}</span>
+        {% if node.kind_label %}<span class="kind">{{ node.kind_label }}</span>{% endif %}
+      </a>
+      {% else %}
+      <span class="tree-mod">{{ node.name }}</span>
+      {% endif %}
+    </summary>
+    {{ children_html|safe }}
+  </details>
+  {% else %}
+  <a class="tree-link{% if node.selected %} is-selected{% endif %}" href="{{ node.href }}">
+    <span class="tree-name{% if not node.config %} is-oper{% endif %}">{{ node.name }}</span>
+    {% if node.kind_label %}<span class="kind">{{ node.kind_label }}</span>{% endif %}
+  </a>
+  {% endif %}
+</li>

@@ -1,0 +1,5 @@
+{% if empty %}
+<p class="muted">Empty</p>
+{% else %}
+<dl class="kv">{{ rows_html|safe }}</dl>
+{% endif %}

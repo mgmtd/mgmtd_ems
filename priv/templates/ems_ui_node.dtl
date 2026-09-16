@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ node_name }} — mgmtd EMS</title>
+  <link rel="stylesheet" href="{{ css_href }}">
+</head>
+<body class="mgmtd-ui-page">
+  <div class="mgmtd-shell">
+    <header class="mgmtd-chrome">
+      <div>
+        <p class="inv-back"><a href="/">← Fleet</a></p>
+        <h1>{{ node_name }}</h1>
+        <p><span class="inv-status is-{{ status }}">{{ status }}</span>
+           {% if address %}<span class="muted">{{ address }}</span>{% endif %}</p>
+      </div>
+      {{ mode_switch_html|safe }}
+    </header>
+    {% if banner %}<p class="banner-error">{{ banner }}</p>{% endif %}
+    {% include "ems_ui_content.dtl" %}
+  </div>
+</body>
+</html>

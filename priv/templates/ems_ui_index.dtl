@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>mgmtd EMS</title>
+  <link rel="stylesheet" href="{{ css_href }}">
+</head>
+<body class="mgmtd-ui-page">
+  <div class="mgmtd-shell">
+    <header class="mgmtd-chrome">
+      <div>
+        <h1>mgmtd EMS</h1>
+        <p>RESTCONF fleet</p>
+      </div>
+    </header>
+    {% if error %}<p class="banner-error">{{ error }}</p>{% endif %}
+    {% if empty %}
+    <p class="empty-hint">No nodes yet. Add a RESTCONF host below.</p>
+    {% else %}
+    <table class="inv-table">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Address</th>
+          <th>Status</th>
+          <th>Schema</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for n in nodes %}
+        <tr>
+          <td><a href="{{ n.href }}">{{ n.name }}</a></td>
+          <td class="muted">{{ n.address }}</td>
+          <td><span class="inv-status is-{{ n.status }}">{{ n.status }}</span></td>
+          <td class="muted">{{ n.schema }}</td>
+          <td>
+            <form method="post" action="{{ n.remove_href }}" class="inv-remove">
+              <button class="btn-danger" type="submit">Remove</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+    <form class="card add-card inv-add" method="post" action="/nodes">
+      <h3>Add node</h3>
+      <label class="draft-label">Name <input class="field" name="name" required></label>
+      <label class="draft-label">Host <input class="field" name="host" required></label>
+      <label class="draft-label">Port <input class="field" type="number" name="port" value="8008"></label>
+      <label class="draft-label inv-check"><input type="checkbox" name="tls" value="true"> TLS</label>
+      <label class="draft-label">User <input class="field" name="user"></label>
+      <label class="draft-label">Password <input class="field" type="password" name="password"></label>
+      <button class="btn" type="submit">Add</button>
+    </form>
+  </div>
+</body>
+</html>

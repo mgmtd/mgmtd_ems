@@ -1,0 +1,8 @@
+<nav class="mode-switch" aria-label="Data view">
+  <a class="mode-opt{% if mode_config %} is-active{% endif %}"
+     href="{{ config_href }}"
+     title="Configuration"{% if mode_config %} aria-current="page"{% endif %}>Config</a>
+  <a class="mode-opt{% if mode_oper %} is-active{% endif %}"
+     href="{{ oper_href }}"
+     title="Operational state"{% if mode_oper %} aria-current="page"{% endif %}>Operational</a>
+</nav>

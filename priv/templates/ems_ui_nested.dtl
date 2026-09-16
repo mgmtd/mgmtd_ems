@@ -1,0 +1,4 @@
+<div>
+  <p class="nested-title">{{ name }}</p>
+  {{ value_html|safe }}
+</div>

@@ -1,0 +1,12 @@
+{% if is_container %}
+<fieldset class="nested-box">
+  <legend>{{ label }}</legend>
+  <div class="draft-fields">{{ children_html|safe }}</div>
+</fieldset>
+{% else %}
+<label class="draft-label">
+  {{ label }}
+  {{ input_html|safe }}
+  {% if error %}<span class="field-error">{{ error }}</span>{% endif %}
+</label>
+{% endif %}

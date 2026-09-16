@@ -1,0 +1,2 @@
+<dt>{{ label }}{% if oper %} <span class="oper">oper</span>{% endif %}</dt>
+<dd>{{ value_html|safe }}</dd>
