@@ -14,7 +14,15 @@
 -define(XRD, <<"application/xrd+xml">>).
 -define(YANG_A,
         <<"module example {\n  namespace \"urn:ex:a\";\n  prefix a;\n"
-          "  container only-a { leaf x { type string; } }\n}\n">>).
+          "  container only-a { leaf x { type string; } }\n"
+          "  container server {\n"
+          "    list servers {\n"
+          "      key name;\n"
+          "      leaf name { type string; }\n"
+          "      leaf host { type string; }\n"
+          "      leaf port { type uint16; }\n"
+          "    }\n"
+          "  }\n}\n">>).
 -define(HOST_META,
         <<"<XRD xmlns='http://docs.oasis-open.org/ns/xri/xrd-1.0'>\n"
           "  <Link rel='restconf' href='/restconf'/>\n"
@@ -26,6 +34,7 @@ ui_test_() ->
              [{"inventory lists the node", fun() -> inventory(Ui) end},
               {"node page shows YANG tree", fun() -> node_page(Ui) end},
               {"save writes southbound", fun() -> save_leaf(Ui) end},
+              {"save list item leaf", fun() -> save_list_item_leaf(Ui) end},
               {"add node from form", fun() -> add_from_form(Ui) end}]
      end}.
 
@@ -40,6 +49,9 @@ setup() ->
     try ets:delete(?FIXTURE) catch error:badarg -> ok end,
     ets:new(?FIXTURE, [named_table, public, set]),
     ets:insert(?FIXTURE, {x, <<"hello">>}),
+    ets:insert(?FIXTURE, {servers, [#{<<"name">> => <<"web">>,
+                                     <<"host">> => <<"127.0.0.1">>,
+                                     <<"port">> => 80}]}),
     Dispatch = cowboy_router:compile([{'_', [{'_', ?MODULE, []}]}]),
     {ok, _} = cowboy:start_clear(?LISTENER, [{port, 0}],
                                  #{env => #{dispatch => Dispatch}}),
@@ -100,6 +112,18 @@ save_leaf(Ui) ->
     ?assertEqual(true, is_list(Loc) andalso Loc =/= undefined),
     ?assertEqual(<<"world">>, ets:lookup_element(?FIXTURE, x, 2)).
 
+save_list_item_leaf(Ui) ->
+    List = "/restconf/data/example:server/servers",
+    {ok, 200, _, Page} = http_get(Ui, "/nodes/edge1?path=" ++ uri_encode_list(List)),
+    ?assertNotEqual(nomatch, binary:match(Page, <<"servers=web/host">>)),
+    Path = "/restconf/data/example:server/servers=web/host",
+    Form = <<"path=", (uri_encode(Path))/binary,
+             "&value=10.0.0.1&etag=&return=", (uri_encode(List))/binary,
+             "&view=index&mode=config">>,
+    {ok, 303, _, _} = http_post(Ui, "/nodes/edge1/save", Form),
+    [#{<<"host">> := Host}] = ets:lookup_element(?FIXTURE, servers, 2),
+    ?assertEqual(<<"10.0.0.1">>, Host).
+
 add_from_form(Ui) ->
     Form = <<"name=edge2&host=127.0.0.1&port=9">>,
     {ok, 303, _, _} = http_post(Ui, "/nodes", Form),
@@ -137,8 +161,12 @@ header(Name, Hdrs) ->
 uri_encode(S) ->
     list_to_binary([enc_byte(C) || C <- S]).
 
+uri_encode_list(S) ->
+    binary_to_list(uri_encode(S)).
+
 enc_byte($/) -> "%2F";
 enc_byte($:) -> "%3A";
+enc_byte($=) -> "%3D";
 enc_byte(C) -> C.
 
 init(Req0, State) ->
@@ -170,6 +198,11 @@ dispatch(<<"GET">>, <<"/restconf/data/example:only-a">>, Req) ->
              #{<<"example:only-a">> => #{<<"x">> => Val}}),
     cowboy_req:reply(200, #{<<"content-type">> => ?JSON, <<"etag">> => <<"\"v1\"">>},
                      Body, Req);
+dispatch(<<"GET">>, <<"/restconf/data/example:server/servers">>, Req) ->
+    Rows = ets:lookup_element(?FIXTURE, servers, 2),
+    Body = mgmtd_ems_json:encode(#{<<"example:servers">> => Rows}),
+    cowboy_req:reply(200, #{<<"content-type">> => ?JSON, <<"etag">> => <<"\"v1\"">>},
+                     Body, Req);
 dispatch(Method, <<"/restconf/data/example:only-a/x">>, Req0)
   when Method =:= <<"PATCH">>; Method =:= <<"PUT">> ->
     {ok, Body, Req} = cowboy_req:read_body(Req0),
@@ -177,11 +210,36 @@ dispatch(Method, <<"/restconf/data/example:only-a/x">>, Req0)
     Val = maps:get(<<"example:x">>, Map, maps:get(<<"x">>, Map, <<>>)),
     ets:insert(?FIXTURE, {x, to_bin(Val)}),
     cowboy_req:reply(204, #{}, <<>>, Req);
+dispatch(Method, <<"/restconf/data/example:server/servers=", Rest/binary>>, Req0)
+  when Method =:= <<"PATCH">>; Method =:= <<"PUT">> ->
+    {ok, Body, Req} = cowboy_req:read_body(Req0),
+    {ok, Map} = mgmtd_ems_json:decode(Body),
+    case binary:split(Rest, <<"/">>) of
+        [Name, Leaf] ->
+            Val = maps:get(<<"example:", Leaf/binary>>, Map,
+                           maps:get(Leaf, Map, <<>>)),
+            update_server(Name, Leaf, Val),
+            cowboy_req:reply(204, #{}, <<>>, Req);
+        _ ->
+            cowboy_req:reply(404, #{<<"content-type">> => ?JSON},
+                             <<"{\"ietf-restconf:errors\":{\"error\":["
+                               "{\"error-tag\":\"invalid-value\"}]}}">>,
+                             Req)
+    end;
 dispatch(_, _, Req) ->
     cowboy_req:reply(404, #{<<"content-type">> => ?JSON},
                      <<"{\"ietf-restconf:errors\":{\"error\":["
                        "{\"error-tag\":\"invalid-value\"}]}}">>,
                      Req).
+
+update_server(Name, Leaf, Val) ->
+    Rows = ets:lookup_element(?FIXTURE, servers, 2),
+    Updated =
+        [case maps:get(<<"name">>, R) of
+             Name -> R#{Leaf => to_bin(Val)};
+             _ -> R
+         end || R <- Rows],
+    ets:insert(?FIXTURE, {servers, Updated}).
 
 to_bin(B) when is_binary(B) -> B;
 to_bin(L) when is_list(L) -> list_to_binary(L).

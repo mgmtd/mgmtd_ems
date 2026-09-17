@@ -125,7 +125,7 @@ save(Name, Qs) ->
     Mode = parse_mode(qs_val(Qs, <<"mode">>)),
     Etag = qs_val(Qs, <<"etag">>),
     Raw = qs_val(Qs, <<"value">>),
-    case find_node(Path, modules(Name)) of
+    case find_schema(Path, modules(Name)) of
         #{<<"kind">> := Kind} = Schema
           when Kind =:= <<"leaf">>; Kind =:= <<"leaf-list">> ->
             Parse = case Kind of
@@ -155,7 +155,7 @@ add(Name, Qs) ->
     Mode = parse_mode(qs_val(Qs, <<"mode">>)),
     Etag = qs_val(Qs, <<"etag">>),
     Draft = collect_item(Qs),
-    case find_node(Path, modules(Name)) of
+    case find_schema(Path, modules(Name)) of
         undefined ->
             {error, Return, View, Mode, #{<<"add">> => <<"unknown list">>}, Draft};
         Node ->
@@ -891,6 +891,29 @@ find_node(<<>>, _) ->
     undefined;
 find_node(Path, Modules) ->
     find_in(Path, lists:append([maps:get(<<"children">>, M, []) || M <- Modules])).
+
+%% Snapshot `path` values are schema paths. Save/add forms post RESTCONF
+%% instance paths (`list=key/leaf`); strip keys before lookup.
+find_schema(Path, Modules) ->
+    case find_node(Path, Modules) of
+        undefined ->
+            find_node(unkey_path(Path), Modules);
+        Node ->
+            Node
+    end.
+
+unkey_path(Path) ->
+    case binary:split(Path, <<"=">>) of
+        [NoKeys] ->
+            NoKeys;
+        [Head, Tail] ->
+            case binary:split(Tail, <<"/">>) of
+                [_Key] ->
+                    Head;
+                [_Key, Rest] ->
+                    unkey_path(<<Head/binary, $/, Rest/binary>>)
+            end
+    end.
 
 find_in(_Path, []) ->
     undefined;
