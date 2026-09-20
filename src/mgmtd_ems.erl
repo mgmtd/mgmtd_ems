@@ -3,6 +3,7 @@
 %%
 %% Inventory of RESTCONF-speaking mgmtd nodes, southbound RESTCONF,
 %% and a YANG schema cache keyed by yang-library `module-set-id`.
+%% Configured fleet nodes are stored in this node's own mgmtd instance.
 %% @end
 %%%-------------------------------------------------------------------
 -module(mgmtd_ems).
@@ -33,8 +34,14 @@ start() ->
 add_node(Name, Spec) ->
     case mgmtd_ems_inventory:add(Name, Spec) of
         ok ->
-            _ = mgmtd_ems_sessions:ensure(Name),
-            ok;
+            case mgmtd_ems_cfg:put_node(Name, Spec) of
+                ok ->
+                    _ = mgmtd_ems_sessions:ensure(Name),
+                    ok;
+                {error, _} = Err ->
+                    _ = mgmtd_ems_inventory:remove(Name),
+                    Err
+            end;
         {error, _} = Err ->
             Err
     end.
@@ -45,7 +52,9 @@ remove_node(Name) ->
         {ok, Node} ->
             Real = maps:get(name, Node),
             _ = mgmtd_ems_sessions:stop(Real),
-            mgmtd_ems_inventory:remove(Real);
+            ok = mgmtd_ems_inventory:remove(Real),
+            _ = mgmtd_ems_cfg:delete_node(Real),
+            ok;
         {error, _} = Err ->
             Err
     end.

@@ -11,11 +11,15 @@
     jsx,
     cowboy,
     erlydtl,
+    ecli,
     mgmtd
    ]},
   {env, [{nodes, []},
          {probe_interval, 30000},
-         {http, [{enabled, true}, {port, 8081}]}]},
+         {db_dir, "db"},
+         {http, [{enabled, true}, {port, 8081}]},
+         {cli, [{enabled, true},
+                {socket, "/var/tmp/mgmtd_ems.cli.socket"}]}]},
   {modules, []},
 
   {licenses, ["Apache 2.0"]},
