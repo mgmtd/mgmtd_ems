@@ -13,6 +13,8 @@
   --mgmtd-danger-bg: #fef2f2;
   --mgmtd-amber: #92400e;
   --mgmtd-amber-bg: #fef3c7;
+  --mgmtd-indigo: #3730a3;
+  --mgmtd-indigo-bg: #eef2ff;
   --mgmtd-radius: 0.75rem;
   --mgmtd-font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
 }
@@ -115,6 +117,10 @@
   color: #451a03;
 }
 
+.mgmtd-ui[data-mode="actions"] .mode-opt.is-active {
+  color: #1e1b4b;
+}
+
 .mgmtd-tree {
   max-height: min(16rem, 40vh);
   overflow: auto;
@@ -212,6 +218,12 @@
   background: var(--mgmtd-amber-bg);
   color: #451a03;
   box-shadow: inset 0 0 0 1px #fcd34d;
+}
+
+.mgmtd-ui[data-mode="actions"] .tree-link.is-selected {
+  background: var(--mgmtd-indigo-bg);
+  color: #1e1b4b;
+  box-shadow: inset 0 0 0 1px #c7d2fe;
 }
 
 .tree-name.is-oper {
@@ -409,6 +421,21 @@
 .add-card {
   border-style: dashed;
   background: rgb(250 250 249 / 0.7);
+}
+
+.rpc-form {
+  margin-bottom: 1rem;
+}
+
+.rpc-output {
+  background: var(--mgmtd-indigo-bg);
+}
+
+.rpc-json {
+  margin: 0;
+  overflow: auto;
+  font-size: 0.8125rem;
+  white-space: pre-wrap;
 }
 
 .add-card h3,

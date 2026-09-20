@@ -33,6 +33,8 @@ handle(<<"POST">>, add, Req) ->
     mgmtd_ems_ui:http_post(add, Req);
 handle(<<"POST">>, delete, Req) ->
     mgmtd_ems_ui:http_post(delete, Req);
+handle(<<"POST">>, rpc, Req) ->
+    mgmtd_ems_ui:http_post(rpc, Req);
 handle(<<"OPTIONS">>, State, Req)
   when State =:= inventory; State =:= node; State =:= content ->
     cowboy_req:reply(200, #{<<"allow">> => <<"GET, HEAD, OPTIONS">>}, <<>>, Req);

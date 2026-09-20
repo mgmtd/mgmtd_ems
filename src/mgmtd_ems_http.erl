@@ -68,6 +68,7 @@ routes() ->
      {"/nodes/:name/save", mgmtd_ems_ui_handler, save},
      {"/nodes/:name/add", mgmtd_ems_ui_handler, add},
      {"/nodes/:name/delete", mgmtd_ems_ui_handler, delete},
+     {"/nodes/:name/rpc", mgmtd_ems_ui_handler, rpc},
      {"/nodes/:name/remove", mgmtd_ems_ui_handler, remove_node},
      {"/nodes/:name", mgmtd_ems_ui_handler, node},
      {"/nodes/:name/", mgmtd_ems_ui_handler, node},

@@ -114,7 +114,8 @@ http_post(Action, Req0) ->
             finish(Node, case Action of
                              save -> save(Name, Qs);
                              add -> add(Name, Qs);
-                             delete -> delete(Name, Qs)
+                             delete -> delete(Name, Qs);
+                             rpc -> rpc(Name, Qs)
                          end, Req)
     end.
 
@@ -195,6 +196,65 @@ apply_save(Name, Path, Body, Etag) ->
             restconf_result(Other)
     end.
 
+rpc(Name, Qs) ->
+    Path = qs_val(Qs, <<"path">>),
+    Return = qs_val(Qs, <<"return">>, Path),
+    View = qs_val(Qs, <<"view">>, <<"index">>),
+    Mode = parse_mode(qs_val(Qs, <<"mode">>)),
+    Draft = collect_prefixed(Qs, <<"input.">>),
+    case find_schema(Path, modules(Name)) of
+        #{<<"kind">> := <<"rpc">>} = Rpc ->
+            InputNode = rpc_io_node(Rpc, <<"input">>),
+            case build_all(InputNode, Draft, <<"input">>) of
+                {error, FieldErrs} ->
+                    {error, Return, View, Mode, FieldErrs, Draft};
+                {ok, Input} ->
+                    Body = rpc_input_body(Rpc, Input),
+                    case mgmtd_ems:post(Name, Path, Body) of
+                        {ok, 204, _, _} ->
+                            {rpc, Return, View, Mode, empty, Draft, #{}};
+                        {ok, S, _, Resp} when S >= 200, S < 300 ->
+                            case decode_rpc_output(Resp, Rpc) of
+                                {ok, Out} ->
+                                    {rpc, Return, View, Mode, Out, Draft, #{}};
+                                {error, Msg} ->
+                                    {error, Return, View, Mode, #{<<"page">> => Msg}, Draft}
+                            end;
+                        Other ->
+                            case restconf_result(Other) of
+                                {error, Err} ->
+                                    {error, Return, View, Mode, #{<<"page">> => Err}, Draft};
+                                ok ->
+                                    {rpc, Return, View, Mode, empty, Draft, #{}}
+                            end
+                    end
+            end;
+        _ ->
+            {error, Return, View, Mode, #{<<"page">> => <<"not an action">>}, Draft}
+    end.
+
+rpc_io_node(Rpc, Name) ->
+    case find_child(Rpc, Name) of
+        undefined -> #{<<"name">> => Name, <<"children">> => [], <<"key_names">> => []};
+        Node -> Node
+    end.
+
+rpc_input_body(_Rpc, Input) when map_size(Input) =:= 0 ->
+    #{};
+rpc_input_body(Rpc, Input) ->
+    Mod = maps:get(<<"module">>, Rpc),
+    #{<<Mod/binary, ":input">> => Input}.
+
+decode_rpc_output(<<>>, _Rpc) ->
+    {ok, empty};
+decode_rpc_output(Body, Rpc) ->
+    case mgmtd_ems_json:decode(Body) of
+        {ok, Map} ->
+            {ok, unwrap(Map, rpc_io_node(Rpc, <<"output">>))};
+        {error, _} ->
+            {error, <<"invalid JSON from node">>}
+    end.
+
 restconf_result({ok, S, _, _}) when S >= 200, S < 300 ->
     ok;
 restconf_result({ok, 404, _, _}) ->
@@ -217,6 +277,11 @@ etag_opts(Etag) -> #{etag => Etag}.
 
 finish(Node, {ok, Return, View, Mode}, Req) ->
     cowboy_req:reply(303, #{<<"location">> => loc(Node, View, Return, Mode)}, <<>>, Req);
+finish(Node, {rpc, Return, View, Mode, Output, Draft, Errors}, Req) ->
+    Body = node_page(view_kind(View), Node, Return,
+                     #{errors => Errors, draft => Draft, mode => Mode,
+                       rpc_output => Output}),
+    html_reply(200, Body, Req);
 finish(Node, {error, Return, View, Mode, Errors, Draft}, Req) ->
     Body = node_page(view_kind(View), Node, Return,
                      #{errors => Errors, draft => Draft, mode => Mode}),
@@ -251,7 +316,8 @@ node_page(Kind, Node, Path, Opts) ->
     PageBase = page_base(Name, Kind),
     View = view_name(Kind),
     Tree = render_modules(Filtered, Path, PageBase, Mode),
-    Pane = render_pane(Name, Selected, Path, Errors, Draft, View, Mode, Mods),
+    RpcOutput = maps:get(rpc_output, Opts, undefined),
+    Pane = render_pane(Name, Selected, Path, Errors, Draft, View, Mode, Mods, RpcOutput),
     Host = to_bin(maps:get(host, Node)),
     Port = integer_to_binary(maps:get(port, Node)),
     Vars = [{css_href, ?CSS},
@@ -322,6 +388,7 @@ path_qs(Path) ->
     [<<"path=", Quoted/binary>>].
 
 mode_qs(oper) -> [<<"mode=oper">>];
+mode_qs(actions) -> [<<"mode=actions">>];
 mode_qs(config) -> [].
 
 join_and([P]) -> P;
@@ -357,7 +424,7 @@ render_schema_node(N, Selected, PageBase, Depth, Mode) ->
     Path = maps:get(<<"path">>, N),
     Kind = maps:get(<<"kind">>, N),
     Kids0 = maps:get(<<"children">>, N, []),
-    ShowKids = Kind =/= <<"list">> andalso Kids0 =/= [],
+    ShowKids = Kind =/= <<"list">> andalso Kind =/= <<"rpc">> andalso Kids0 =/= [],
     Href = loc_href(PageBase, Path, Mode),
     Node = [{name, maps:get(<<"name">>, N)},
             {is_link, true},
@@ -390,21 +457,32 @@ path_open(Path, Selected) ->
 
 parse_mode(<<"oper">>) -> oper;
 parse_mode(<<"state">>) -> oper;
+parse_mode(<<"actions">>) -> actions;
+parse_mode(<<"action">>) -> actions;
+parse_mode(<<"rpc">>) -> actions;
 parse_mode(_) -> config.
 
 mode_bin(oper) -> <<"oper">>;
+mode_bin(actions) -> <<"actions">>;
 mode_bin(config) -> <<"config">>.
-
-other_mode(config) -> oper;
-other_mode(oper) -> config.
 
 infer_mode(<<>>, _) ->
     config;
 infer_mode(Path, Mods) ->
     case find_node(Path, Mods) of
+        #{<<"kind">> := <<"rpc">>} -> actions;
         #{<<"config">> := false} -> oper;
         _ -> config
     end.
+
+has_rpcs(Mods) ->
+    lists:any(
+      fun(M) ->
+              lists:any(fun is_rpc/1, maps:get(<<"children">>, M, []))
+      end, Mods).
+
+is_rpc(#{<<"kind">> := <<"rpc">>}) -> true;
+is_rpc(_) -> false.
 
 filter_modules(Mods, Mode) ->
     [M#{<<"children">> => Kids}
@@ -421,6 +499,8 @@ filter_nodes(Nodes, Mode) ->
               end
       end, Nodes).
 
+keep_node(N, actions) ->
+    N;
 keep_node(N, Mode) ->
     Kids0 = maps:get(<<"children">>, N, []),
     Kids = case maps:get(<<"kind">>, N, undefined) of
@@ -440,6 +520,12 @@ keep_node(N, Mode) ->
            end,
     N#{<<"children">> => Kids}.
 
+node_in_mode(#{<<"kind">> := <<"rpc">>}, actions) ->
+    true;
+node_in_mode(#{<<"kind">> := <<"rpc">>}, _Mode) ->
+    false;
+node_in_mode(_N, actions) ->
+    false;
 node_in_mode(N, Mode) ->
     case maps:get(<<"kind">>, N, undefined) of
         Kind when Kind =:= <<"leaf">>; Kind =:= <<"leaf-list">> ->
@@ -457,32 +543,43 @@ node_is_mode(N, oper) ->
 
 writable(Node, config) ->
     maps:get(<<"config">>, Node, false);
-writable(_Node, oper) ->
+writable(_Node, _Mode) ->
     false.
 
 empty_tree_msg(config) -> <<"No configuration schema.">>;
-empty_tree_msg(oper) -> <<"No operational schema.">>.
+empty_tree_msg(oper) -> <<"No operational schema.">>;
+empty_tree_msg(actions) -> <<"No RPC actions in schema.">>.
 
 tree_label(config) -> <<"Configuration">>;
-tree_label(oper) -> <<"Operational state">>.
+tree_label(oper) -> <<"Operational state">>;
+tree_label(actions) -> <<"Actions">>.
 
 empty_hint(config) -> <<"Select a configuration node.">>;
-empty_hint(oper) -> <<"Select an operational node.">>.
+empty_hint(oper) -> <<"Select an operational node.">>;
+empty_hint(actions) -> <<"Select an action.">>.
 
-wrong_mode_msg(config) -> <<"This node is operational.">>;
-wrong_mode_msg(oper) -> <<"This node is configuration.">>.
+wrong_mode_target_msg(actions) -> <<"This node is an action.">>;
+wrong_mode_target_msg(oper) -> <<"This node is operational.">>;
+wrong_mode_target_msg(config) -> <<"This node is configuration.">>.
 
 other_mode_link(config) -> <<"Open in Config">>;
-other_mode_link(oper) -> <<"Open in Operational">>.
+other_mode_link(oper) -> <<"Open in Operational">>;
+other_mode_link(actions) -> <<"Open in Actions">>.
 
 render_mode_switch(Name, View, Path, Mods, Mode) ->
     ConfigPath = switch_path(Path, Mods, config),
     OperPath = switch_path(Path, Mods, oper),
+    ActionsPath = switch_path(Path, Mods, actions),
+    Base = page_base(Name, view_kind(View)),
+    ShowActions = has_rpcs(Mods) orelse Mode =:= actions,
     tpl(ems_ui_mode_switch_dtl,
         [{mode_config, Mode =:= config},
          {mode_oper, Mode =:= oper},
-         {config_href, loc_href(page_base(Name, view_kind(View)), ConfigPath, config)},
-         {oper_href, loc_href(page_base(Name, view_kind(View)), OperPath, oper)}]).
+         {mode_actions, Mode =:= actions},
+         {show_actions, ShowActions},
+         {config_href, loc_href(Base, ConfigPath, config)},
+         {oper_href, loc_href(Base, OperPath, oper)},
+         {actions_href, loc_href(Base, ActionsPath, actions)}]).
 
 switch_path(Path, Mods, Mode) ->
     case find_node(Path, filter_modules(Mods, Mode)) of
@@ -494,10 +591,10 @@ switch_path(Path, Mods, Mode) ->
 %% Pane / values
 %%--------------------------------------------------------------------
 
-render_pane(Name, undefined, <<>>, _Errors, _Draft, _View, Mode, _Mods) ->
+render_pane(Name, undefined, <<>>, _Errors, _Draft, _View, Mode, _Mods, _RpcOut) ->
     _ = Name,
     tpl(ems_ui_pane_dtl, empty_pane(Mode));
-render_pane(Name, undefined, Path, Errors, _Draft, View, Mode, Mods) ->
+render_pane(Name, undefined, Path, Errors, _Draft, View, Mode, Mods, _RpcOut) ->
     case find_node(Path, Mods) of
         undefined ->
             Vars = [{has_selection, true},
@@ -513,17 +610,32 @@ render_pane(Name, undefined, Path, Errors, _Draft, View, Mode, Mods) ->
             tpl(ems_ui_pane_dtl,
                 put_text(Vars, write_error, maps:get(<<"page">>, Errors, undefined)));
         _Raw ->
-            Other = other_mode(Mode),
+            Target = infer_mode(Path, Mods),
             Vars = [{has_selection, false},
                     {wrong_mode, true},
                     {read_only, false},
                     {empty_hint, <<>>},
-                    {wrong_mode_msg, wrong_mode_msg(Mode)},
-                    {other_href, loc_href(page_base(Name, view_kind(View)), Path, Other)},
-                    {other_link, other_mode_link(Other)}],
+                    {wrong_mode_msg, wrong_mode_target_msg(Target)},
+                    {other_href, loc_href(page_base(Name, view_kind(View)), Path, Target)},
+                    {other_link, other_mode_link(Target)}],
             tpl(ems_ui_pane_dtl, Vars)
     end;
-render_pane(Name, Node, _Path, Errors, Draft, View, Mode, _Mods) ->
+render_pane(Name, #{<<"kind">> := <<"rpc">>} = Node, _Path, Errors, Draft, View, Mode,
+            _Mods, RpcOutput) ->
+    Return = maps:get(<<"path">>, Node),
+    ValueHtml = render_rpc(Name, Node, Return, Errors, Draft, View, Mode, RpcOutput),
+    Vars = [{has_selection, true},
+            {wrong_mode, false},
+            {read_only, false},
+            {name, maps:get(<<"name">>, Node)},
+            {kind, maps:get(<<"kind">>, Node)},
+            {config, false},
+            {path, Return},
+            {empty_hint, <<>>},
+            {value_html, html(ValueHtml)}],
+    Vars1 = put_text(Vars, desc, nonempty(maps:get(<<"desc">>, Node, undefined))),
+    tpl(ems_ui_pane_dtl, Vars1);
+render_pane(Name, Node, _Path, Errors, Draft, View, Mode, _Mods, _RpcOut) ->
     Return = maps:get(<<"path">>, Node),
     {LoadErr, Value, Etag} = load_value(Name, Node),
     ValueHtml = case LoadErr of
@@ -585,9 +697,9 @@ empty_value(#{<<"kind">> := <<"container">>}) -> #{};
 empty_value(_) -> undefined.
 
 unwrap(Data, Node) when is_map(Data) ->
-    case first_present(Data, [maps:get(<<"qname">>, Node),
-                              maps:get(<<"json_name">>, Node),
-                              maps:get(<<"name">>, Node)]) of
+    case first_present(Data, [maps:get(<<"qname">>, Node, undefined),
+                              maps:get(<<"json_name">>, Node, undefined),
+                              maps:get(<<"name">>, Node, undefined)]) of
         undefined -> Data;
         Val -> Val
     end;
@@ -604,8 +716,43 @@ render_value(Name, Node, Value, ResourcePath, Return, Etag, Errors, Draft, View,
             render_list(Name, Node, Value, Return, Etag, Errors, Draft, View, Mode);
         <<"container">> ->
             render_container(Name, Node, Value, ResourcePath, Return, Etag, Errors, Draft, View, Mode);
+        <<"rpc">> ->
+            render_rpc(Name, Node, Return, Errors, Draft, View, Mode, undefined);
         _ ->
             <<>>
+    end.
+
+render_rpc(Name, Node, Return, Errors, Draft, View, Mode, RpcOutput) ->
+    InputNode = rpc_io_node(Node, <<"input">>),
+    InputKids = maps:get(<<"children">>, InputNode, []),
+    DraftHtml = render_form_draft(InputNode, <<"input">>, Draft, Errors),
+    Vars = [{ui_base, ui_base(Name)},
+            {path, maps:get(<<"path">>, Node)},
+            {return_path, Return},
+            {view, View},
+            {mode, mode_bin(Mode)},
+            {has_input, InputKids =/= []},
+            {draft_html, html(DraftHtml)},
+            {has_output, RpcOutput =/= undefined},
+            {output_empty, RpcOutput =:= empty}] ++ rpc_output_vars(Node, RpcOutput),
+    tpl(ems_ui_rpc_dtl, put_text(Vars, invoke_error, maps:get(<<"page">>, Errors, undefined))).
+
+rpc_output_vars(_Node, undefined) ->
+    [{output_fields, []}];
+rpc_output_vars(_Node, empty) ->
+    [{output_fields, []}];
+rpc_output_vars(Node, Value) ->
+    OutputNode = rpc_io_node(Node, <<"output">>),
+    Kids = maps:get(<<"children">>, OutputNode, []),
+    case Kids of
+        [] ->
+            [{output_fields, []},
+             {output_json, iolist_to_binary(mgmtd_ems_json:encode(Value))}];
+        _ ->
+            [{output_fields,
+              [[{label, maps:get(<<"name">>, C)},
+                {display, format_scalar(child_value(Value, C))}]
+               || C <- Kids]}]
     end.
 
 render_leaf(Name, Node, Value, ResourcePath, Return, Etag, Errors, View, Mode) ->
@@ -704,15 +851,20 @@ nested_block(Name, Child, Val, ResourcePath, Return, Etag, Errors, View, Mode) -
          {value_html, html(Inner)}]).
 
 render_draft(Node, Prefix, Draft, Errors) ->
-    [render_draft_field(F, Prefix, Draft, Errors) || F <- draft_fields(Node)].
+    [render_draft_field(F, Prefix, Draft, Errors, fun render_draft/4)
+     || F <- draft_fields(Node)].
 
-render_draft_field(Field, Prefix, Draft, Errors) ->
+render_form_draft(Node, Prefix, Draft, Errors) ->
+    [render_draft_field(F, Prefix, Draft, Errors, fun render_form_draft/4)
+     || F <- all_form_fields(Node)].
+
+render_draft_field(Field, Prefix, Draft, Errors, NestedFun) ->
     Name = maps:get(<<"name">>, Field),
     InputName = <<Prefix/binary, $., Name/binary>>,
     case maps:get(<<"kind">>, Field) of
         <<"container">> ->
             Nested = as_map(nested_get(Draft, Name)),
-            Children = render_draft(Field, InputName, Nested, Errors),
+            Children = NestedFun(Field, InputName, Nested, Errors),
             tpl(ems_ui_draft_field_dtl,
                 [{is_container, true},
                  {label, Name},
@@ -732,8 +884,13 @@ render_draft_field(Field, Prefix, Draft, Errors) ->
     end.
 
 draft_fields(Node) ->
+    form_fields(Node, config_children(Node)).
+
+all_form_fields(Node) ->
+    form_fields(Node, maps:get(<<"children">>, Node, [])).
+
+form_fields(Node, Kids) ->
     Keys = maps:get(<<"key_names">>, Node, []),
-    Kids = config_children(Node),
     KeyNodes = [C || K <- Keys, C <- [find_child(Node, K)], C =/= undefined],
     RestLeaves = [C || C <- Kids,
                        is_leafish(C),
@@ -768,11 +925,14 @@ default_draft(Node) ->
     end.
 
 build_item(Node, Draft, Prefix) ->
-    build_kids(draft_fields(Node), Node, as_map(Draft), Prefix, #{}).
+    build_kids(draft_fields(Node), Node, as_map(Draft), Prefix, #{}, fun build_item/3).
 
-build_kids([], _Node, _Draft, _Prefix, Acc) ->
+build_all(Node, Draft, Prefix) ->
+    build_kids(all_form_fields(Node), Node, as_map(Draft), Prefix, #{}, fun build_all/3).
+
+build_kids([], _Node, _Draft, _Prefix, Acc, _NestedFun) ->
     {ok, Acc};
-build_kids([C | Rest], Node, Draft, Prefix, Acc) ->
+build_kids([C | Rest], Node, Draft, Prefix, Acc, NestedFun) ->
     Name = maps:get(<<"name">>, C),
     Json = maps:get(<<"json_name">>, C),
     InputName = <<Prefix/binary, $., Name/binary>>,
@@ -780,13 +940,13 @@ build_kids([C | Rest], Node, Draft, Prefix, Acc) ->
     case maps:get(<<"kind">>, C) of
         <<"container">> ->
             NestedDraft = as_map(nested_get(Draft, Name)),
-            case build_item(C, NestedDraft, InputName) of
+            case NestedFun(C, NestedDraft, InputName) of
                 {error, _} = Err ->
                     Err;
                 {ok, Nested} when map_size(Nested) =:= 0 ->
-                    build_kids(Rest, Node, Draft, Prefix, Acc);
+                    build_kids(Rest, Node, Draft, Prefix, Acc, NestedFun);
                 {ok, Nested} ->
-                    build_kids(Rest, Node, Draft, Prefix, Acc#{Json => Nested})
+                    build_kids(Rest, Node, Draft, Prefix, Acc#{Json => Nested}, NestedFun)
             end;
         <<"leaf-list">> ->
             Raw = to_bin(nested_get(Draft, Name)),
@@ -796,10 +956,10 @@ build_kids([C | Rest], Node, Draft, Prefix, Acc) ->
                 {ok, []} ->
                     case required(C, Keys) of
                         true -> {error, #{InputName => <<"required">>}};
-                        false -> build_kids(Rest, Node, Draft, Prefix, Acc)
+                        false -> build_kids(Rest, Node, Draft, Prefix, Acc, NestedFun)
                     end;
                 {ok, List} ->
-                    build_kids(Rest, Node, Draft, Prefix, Acc#{Json => List})
+                    build_kids(Rest, Node, Draft, Prefix, Acc#{Json => List}, NestedFun)
             end;
         <<"leaf">> ->
             Raw = string:trim(to_bin(nested_get(Draft, Name))),
@@ -807,18 +967,18 @@ build_kids([C | Rest], Node, Draft, Prefix, Acc) ->
                 <<>> ->
                     case required(C, Keys) of
                         true -> {error, #{InputName => <<"required">>}};
-                        false -> build_kids(Rest, Node, Draft, Prefix, Acc)
+                        false -> build_kids(Rest, Node, Draft, Prefix, Acc, NestedFun)
                     end;
                 _ ->
                     case parse_snapshot_leaf(C, Raw) of
                         {error, Msg} ->
                             {error, #{InputName => Msg}};
                         {ok, Val} ->
-                            build_kids(Rest, Node, Draft, Prefix, Acc#{Json => Val})
+                            build_kids(Rest, Node, Draft, Prefix, Acc#{Json => Val}, NestedFun)
                     end
             end;
         _ ->
-            build_kids(Rest, Node, Draft, Prefix, Acc)
+            build_kids(Rest, Node, Draft, Prefix, Acc, NestedFun)
     end.
 
 required(C, Keys) ->
@@ -874,11 +1034,18 @@ parse_number(Name, Bin) ->
     end.
 
 collect_item(Qs) ->
+    collect_prefixed(Qs, <<"item.">>).
+
+collect_prefixed(Qs, Prefix) ->
+    Sz = byte_size(Prefix),
     lists:foldl(
-      fun({<<"item.", Rest/binary>>, Val}, Acc) ->
-              put_dotted(Acc, binary:split(Rest, <<".">>, [global]), Val);
-         (_, Acc) ->
-              Acc
+      fun({Key, Val}, Acc) ->
+              case Key of
+                  <<P:Sz/binary, Rest/binary>> when P =:= Prefix ->
+                      put_dotted(Acc, binary:split(Rest, <<".">>, [global]), Val);
+                  _ ->
+                      Acc
+              end
       end, #{}, Qs).
 
 put_dotted(Map, [K], Val) ->
@@ -1156,6 +1323,7 @@ compile() ->
                "ems_ui_draft_field.dtl",
                "ems_ui_list_item.dtl",
                "ems_ui_list.dtl",
+               "ems_ui_rpc.dtl",
                "ems_ui_pane.dtl",
                "ems_ui_mode_switch.dtl",
                "ems_ui_content.dtl",

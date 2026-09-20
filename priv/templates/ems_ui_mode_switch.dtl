@@ -5,4 +5,9 @@
   <a class="mode-opt{% if mode_oper %} is-active{% endif %}"
      href="{{ oper_href }}"
      title="Operational state"{% if mode_oper %} aria-current="page"{% endif %}>Operational</a>
+  {% if show_actions %}
+  <a class="mode-opt{% if mode_actions %} is-active{% endif %}"
+     href="{{ actions_href }}"
+     title="RPC actions"{% if mode_actions %} aria-current="page"{% endif %}>Actions</a>
+  {% endif %}
 </nav>

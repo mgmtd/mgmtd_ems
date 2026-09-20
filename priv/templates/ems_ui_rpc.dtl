@@ -1,0 +1,31 @@
+<form class="card add-card rpc-form" method="post" action="{{ ui_base }}/rpc">
+  <input type="hidden" name="path" value="{{ path }}">
+  <input type="hidden" name="return" value="{{ return_path }}">
+  <input type="hidden" name="view" value="{{ view }}">
+  <input type="hidden" name="mode" value="{{ mode }}">
+  <h3>Invoke</h3>
+  {% if has_input %}
+  <div class="draft-fields">{{ draft_html|safe }}</div>
+  {% else %}
+  <p class="muted">No input.</p>
+  {% endif %}
+  {% if invoke_error %}<p class="field-error">{{ invoke_error }}</p>{% endif %}
+  <button class="btn" type="submit">Invoke</button>
+</form>
+{% if has_output %}
+<div class="card rpc-output">
+  <h3>Output</h3>
+  {% if output_empty %}
+  <p class="muted">Invoked. No output.</p>
+  {% else %}{% if output_fields %}
+  <dl class="kv">
+    {% for field in output_fields %}
+    <dt>{{ field.label }}</dt>
+    <dd><span class="display-value">{{ field.display }}</span></dd>
+    {% endfor %}
+  </dl>
+  {% else %}
+  <pre class="rpc-json">{{ output_json }}</pre>
+  {% endif %}{% endif %}
+</div>
+{% endif %}
