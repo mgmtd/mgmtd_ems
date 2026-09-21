@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Log in — mgmtd EMS</title>
+  <link rel="stylesheet" href="{{ css_href }}">
+</head>
+<body class="mgmtd-ui-page login-page">
+  <div class="login-shell">
+    <div class="login-brand">
+      <h1>mgmtd EMS</h1>
+      <p>Element management</p>
+    </div>
+    <form class="card login-card" method="post" action="/login">
+      <h2>Sign in</h2>
+      {% if error %}<p class="banner-error">{{ error }}</p>{% endif %}
+      <input type="hidden" name="next" value="{{ next }}">
+      <label class="draft-label">Username
+        <input class="field" name="user" value="{{ user }}" required autofocus autocomplete="username">
+      </label>
+      <label class="draft-label">Password
+        <input class="field" type="password" name="password" required autocomplete="current-password">
+      </label>
+      <button class="btn login-submit" type="submit">Log in</button>
+    </form>
+  </div>
+</body>
+</html>

@@ -40,9 +40,11 @@ ui_test_() ->
      fun(#{ui := Ui, south := _South}) ->
              [{"inventory lists the node", fun() -> inventory(Ui) end},
               {"node page shows YANG tree", fun() -> node_page(Ui) end},
+              {"config leaf shows save", fun() -> leaf_shows_save(Ui) end},
               {"save writes southbound", fun() -> save_leaf(Ui) end},
               {"save list item leaf", fun() -> save_list_item_leaf(Ui) end},
               {"add node from form", fun() -> add_from_form(Ui) end},
+              {"add node validation keeps dialog", fun() -> add_missing_name(Ui) end},
               {"actions tab when schema has rpcs", fun() -> actions_tab(Ui) end},
               {"no actions tab without rpcs", fun() -> no_actions_tab(Ui) end},
               {"invoke echo rpc", fun() -> invoke_echo(Ui) end}]
@@ -54,7 +56,8 @@ setup() ->
     application:load(mgmtd_ems),
     application:set_env(mgmtd_ems, probe_interval, 0),
     application:unset_env(mgmtd_ems, nodes),
-    application:set_env(mgmtd_ems, http, [{enabled, true}, {port, 0}]),
+    application:set_env(mgmtd_ems, http,
+                        [{enabled, true}, {port, 0}, {auth, false}]),
     stop_stack(),
     try ets:delete(?FIXTURE) catch error:badarg -> ok end,
     ets:new(?FIXTURE, [named_table, public, set]),
@@ -112,13 +115,22 @@ stop_stack() ->
 inventory(Ui) ->
     {ok, 200, _, Body} = http_get(Ui, "/"),
     ?assertNotEqual(nomatch, binary:match(Body, <<"edge1">>)),
-    ?assertNotEqual(nomatch, binary:match(Body, <<"mgmtd EMS">>)).
+    ?assertNotEqual(nomatch, binary:match(Body, <<"mgmtd EMS">>)),
+    ?assertNotEqual(nomatch, binary:match(Body, <<"Add node">>)),
+    ?assertNotEqual(nomatch, binary:match(Body, <<"id=\"add-node\"">>)),
+    ?assertNotEqual(nomatch, binary:match(Body, <<"Remove">>)),
+    ?assertEqual(nomatch, binary:match(Body, <<"Logout">>)).
 
 node_page(Ui) ->
     {ok, 200, _, Body} = http_get(Ui, "/nodes/edge1"),
     ?assertNotEqual(nomatch, binary:match(Body, <<"only-a">>)),
     ?assertNotEqual(nomatch, binary:match(Body, <<"example">>)),
     ?assertEqual(nomatch, binary:match(Body, <<"example-rpc:echo">>)).
+
+leaf_shows_save(Ui) ->
+    Path = "/restconf/data/example:only-a/x",
+    {ok, 200, _, Body} = http_get(Ui, "/nodes/edge1?path=" ++ uri_encode_list(Path)),
+    ?assertNotEqual(nomatch, binary:match(Body, <<"Save">>)).
 
 save_leaf(Ui) ->
     Path = "/restconf/data/example:only-a/x",
@@ -147,6 +159,13 @@ add_from_form(Ui) ->
     {ok, 303, _, _} = http_post(Ui, "/nodes", Form),
     {ok, Node} = mgmtd_ems:node(<<"edge2">>),
     ?assertEqual("127.0.0.1", maps:get(host, Node)).
+
+add_missing_name(Ui) ->
+    Form = <<"name=&host=127.0.0.1">>,
+    {ok, 200, _, Body} = http_post(Ui, "/nodes", Form),
+    ?assertNotEqual(nomatch, binary:match(Body, <<"name is required">>)),
+    ?assertNotEqual(nomatch, binary:match(Body, <<"id=\"add-node\"">>)),
+    ?assertNotEqual(nomatch, binary:match(Body, <<"showModal()">>)).
 
 actions_tab(Ui) ->
     {ok, 200, _, Config} = http_get(Ui, "/nodes/edge1"),

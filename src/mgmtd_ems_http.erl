@@ -3,10 +3,16 @@
 %%
 %% sys.config (`mgmtd_ems`):
 %%
-%%     {http, [{enabled, true}, {port, 8080}]}
+%%     {http, [{enabled, true}, {port, 8080},
+%%             {auth, [{users, [{"alice", "secret"}]}]}]}
 %%
 %% `enabled` defaults to true when this module's `start/0` is called
 %% (from the application callback, not from the supervisor used in tests).
+%%
+%% HTTP auth is pluggable (`mgmtd_ems_auth`). Default is a login form
+%% against static users; omitted / empty `auth` still requires login
+%% (nobody can sign in). `{auth, false}` opens the UI (tests only).
+%% See `mgmtd_ems_auth`.
 %% @end
 %%%-------------------------------------------------------------------
 -module(mgmtd_ems_http).
@@ -32,6 +38,7 @@ start() ->
 
 -spec stop() -> ok.
 stop() ->
+    AuthCb = auth_cb(),
     try cowboy:stop_listener(?LISTENER) of
         ok ->
             ok;
@@ -40,7 +47,8 @@ stop() ->
     catch
         _:_ ->
             ok
-    end.
+    end,
+    mgmtd_ems_auth:terminate(AuthCb).
 
 -spec port() -> inet:port_number().
 port() ->
@@ -49,16 +57,36 @@ port() ->
 start_listener() ->
     {ok, _} = application:ensure_all_started(cowboy),
     ok = mgmtd_ems_ui:compile(),
+    case mgmtd_ems_auth:init() of
+        {ok, AuthCb} ->
+            listen(AuthCb);
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+listen(AuthCb) ->
     Dispatch = cowboy_router:compile([{'_', routes()}]),
     TransOpts = [{port, listen_port()}],
-    ProtoOpts = #{env => #{dispatch => Dispatch}},
+    ProtoOpts = #{env => #{dispatch => Dispatch, auth_cb => AuthCb},
+                  middlewares => [mgmtd_ems_auth, cowboy_router, cowboy_handler]},
     case cowboy:start_clear(?LISTENER, TransOpts, ProtoOpts) of
         {ok, _} ->
             ok;
         {error, {already_started, _}} ->
+            _ = mgmtd_ems_auth:terminate(AuthCb),
             ok;
         {error, Reason} ->
+            _ = mgmtd_ems_auth:terminate(AuthCb),
             {error, Reason}
+    end.
+
+auth_cb() ->
+    try cowboy:get_env(?LISTENER, auth_cb, undefined) of
+        Value ->
+            Value
+    catch
+        _:_ ->
+            undefined
     end.
 
 routes() ->

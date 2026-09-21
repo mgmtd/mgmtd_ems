@@ -1,0 +1,6 @@
+{% if show_logout %}
+<nav class="mgmtd-account" aria-label="Account">
+  {% if auth_user %}<span class="mgmtd-account-user">{{ auth_user }}</span>{% endif %}
+  <a class="btn-quiet" href="/logout">Logout</a>
+</nav>
+{% endif %}

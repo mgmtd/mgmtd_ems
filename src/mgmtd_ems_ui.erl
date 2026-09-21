@@ -18,7 +18,7 @@
 %%--------------------------------------------------------------------
 
 inventory(Req) ->
-    html_reply(200, inventory_page(qs_val(cowboy_req:parse_qs(Req), <<"error">>)), Req).
+    html_reply(200, inventory_page(qs_val(cowboy_req:parse_qs(Req), <<"error">>), Req), Req).
 
 add_node(Req0) ->
     {ok, Qs, Req} = cowboy_req:read_urlencoded_body(Req0),
@@ -26,9 +26,9 @@ add_node(Req0) ->
     Host = string:trim(qs_val(Qs, <<"host">>)),
     case {Name, Host} of
         {<<>>, _} ->
-            html_reply(200, inventory_page(<<"name is required">>), Req);
+            html_reply(200, inventory_page(<<"name is required">>, Req), Req);
         {_, <<>>} ->
-            html_reply(200, inventory_page(<<"host is required">>), Req);
+            html_reply(200, inventory_page(<<"host is required">>, Req), Req);
         _ ->
             Spec = #{host => binary_to_list(Host),
                      port => parse_port(qs_val(Qs, <<"port">>, <<"8008">>)),
@@ -39,9 +39,9 @@ add_node(Req0) ->
                 ok ->
                     cowboy_req:reply(303, #{<<"location">> => <<"/">>}, <<>>, Req);
                 {error, already_exists} ->
-                    html_reply(200, inventory_page(<<"node already exists">>), Req);
+                    html_reply(200, inventory_page(<<"node already exists">>, Req), Req);
                 {error, Reason} ->
-                    html_reply(200, inventory_page(err_msg(Reason)), Req)
+                    html_reply(200, inventory_page(err_msg(Reason), Req), Req)
             end
     end.
 
@@ -50,12 +50,13 @@ remove_node(Req) ->
     _ = mgmtd_ems:remove_node(Name),
     cowboy_req:reply(303, #{<<"location">> => <<"/">>}, <<>>, Req).
 
-inventory_page(Error) ->
+inventory_page(Error, Req) ->
     ensure_compiled(),
+    bind_write(Req),
     Rows = [inv_row(N) || N <- lists:sort(fun inv_ord/2, mgmtd_ems:nodes())],
     Vars = [{css_href, ?CSS},
             {empty, Rows =:= []},
-            {nodes, Rows}],
+            {nodes, Rows}] ++ chrome_vars(Req),
     tpl(ems_ui_index_dtl, put_text(Vars, error, nonempty(Error))).
 
 inv_ord(A, B) ->
@@ -99,7 +100,7 @@ http_get(Kind, Req) ->
                                {_, V} -> #{mode => parse_mode(V)};
                                false -> #{}
                            end,
-                    Body = node_page(Kind, Node, Path, Opts),
+                    Body = node_page(Kind, Node, Path, Opts, Req),
                     html_reply(200, Body, Req)
             end
     end.
@@ -280,19 +281,20 @@ finish(Node, {ok, Return, View, Mode}, Req) ->
 finish(Node, {rpc, Return, View, Mode, Output, Draft, Errors}, Req) ->
     Body = node_page(view_kind(View), Node, Return,
                      #{errors => Errors, draft => Draft, mode => Mode,
-                       rpc_output => Output}),
+                       rpc_output => Output}, Req),
     html_reply(200, Body, Req);
 finish(Node, {error, Return, View, Mode, Errors, Draft}, Req) ->
     Body = node_page(view_kind(View), Node, Return,
-                     #{errors => Errors, draft => Draft, mode => Mode}),
+                     #{errors => Errors, draft => Draft, mode => Mode}, Req),
     html_reply(200, Body, Req).
 
 %%--------------------------------------------------------------------
 %% Page
 %%--------------------------------------------------------------------
 
-node_page(Kind, Node, Path, Opts) ->
+node_page(Kind, Node, Path, Opts, Req) ->
     ensure_compiled(),
+    bind_write(Req),
     Name = maps:get(name, Node),
     Status = maps:get(status, Node, unknown),
     {Banner, Mods} = case mgmtd_ems:schema_snapshot(Name) of
@@ -332,7 +334,7 @@ node_page(Kind, Node, Path, Opts) ->
             {address, <<Host/binary, $:, Port/binary>>},
             {mode_switch_html, html(render_mode_switch(Name, View, Path, Mods, Mode))},
             {tree_html, html(Tree)},
-            {pane_html, html(Pane)}],
+            {pane_html, html(Pane)}] ++ chrome_vars(Req),
     Vars1 = put_text(Vars, banner, nonempty(maps:get(banner, Opts, Banner))),
     tpl(page_mod(Kind), Vars1).
 
@@ -350,6 +352,28 @@ view_name(content) -> <<"content">>.
 
 view_kind(<<"content">>) -> content;
 view_kind(_) -> index.
+
+chrome_vars(Req) ->
+    Identity = mgmtd_ems_auth:identity(Req),
+    CanWrite = identity_can_write(Identity),
+    case Identity of
+        #{user := <<"anonymous">>} ->
+            [{show_logout, false}, {auth_user, <<>>}, {can_write, CanWrite}];
+        #{user := User} ->
+            [{show_logout, true}, {auth_user, User}, {can_write, CanWrite}];
+        _ ->
+            [{show_logout, false}, {auth_user, <<>>}, {can_write, CanWrite}]
+    end.
+
+%% Request-scoped: node-page rendering calls `writable/2` without Req.
+bind_write(Req) ->
+    put(ems_ui_can_write, identity_can_write(mgmtd_ems_auth:identity(Req))).
+
+identity_can_write(#{role := read_only}) -> false;
+identity_can_write(_) -> true.
+
+allow_write() ->
+    get(ems_ui_can_write) =/= false.
 
 modules(Name) ->
     case mgmtd_ems:schema_snapshot(Name) of
@@ -542,7 +566,7 @@ node_is_mode(N, oper) ->
     maps:get(<<"config">>, N, false) =:= false.
 
 writable(Node, config) ->
-    maps:get(<<"config">>, Node, false);
+    allow_write() andalso maps:get(<<"config">>, Node, false);
 writable(_Node, _Mode) ->
     false.
 
@@ -571,7 +595,7 @@ render_mode_switch(Name, View, Path, Mods, Mode) ->
     OperPath = switch_path(Path, Mods, oper),
     ActionsPath = switch_path(Path, Mods, actions),
     Base = page_base(Name, view_kind(View)),
-    ShowActions = has_rpcs(Mods) orelse Mode =:= actions,
+    ShowActions = allow_write() andalso (has_rpcs(Mods) orelse Mode =:= actions),
     tpl(ems_ui_mode_switch_dtl,
         [{mode_config, Mode =:= config},
          {mode_oper, Mode =:= oper},
@@ -731,6 +755,7 @@ render_rpc(Name, Node, Return, Errors, Draft, View, Mode, RpcOutput) ->
             {return_path, Return},
             {view, View},
             {mode, mode_bin(Mode)},
+            {can_write, allow_write()},
             {has_input, InputKids =/= []},
             {draft_html, html(DraftHtml)},
             {has_output, RpcOutput =/= undefined},
@@ -1328,7 +1353,8 @@ compile() ->
                "ems_ui_mode_switch.dtl",
                "ems_ui_content.dtl",
                "ems_ui_node.dtl",
-               "ems_ui_index.dtl"],
+               "ems_ui_index.dtl",
+               "ems_ui_login.dtl"],
               Dir, Opts)
     end.
 

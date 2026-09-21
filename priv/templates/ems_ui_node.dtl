@@ -10,12 +10,15 @@
   <div class="mgmtd-shell">
     <header class="mgmtd-chrome">
       <div>
-        <p class="inv-back"><a href="/">← Fleet</a></p>
+        <p class="inv-back"><a href="/">← Nodes</a></p>
         <h1>{{ node_name }}</h1>
         <p><span class="inv-status is-{{ status }}">{{ status }}</span>
            {% if address %}<span class="muted">{{ address }}</span>{% endif %}</p>
       </div>
-      {{ mode_switch_html|safe }}
+      <div class="mgmtd-chrome-end">
+        {{ mode_switch_html|safe }}
+        {% include "ems_ui_account.dtl" %}
+      </div>
     </header>
     {% if banner %}<p class="banner-error">{{ banner }}</p>{% endif %}
     {% include "ems_ui_content.dtl" %}
